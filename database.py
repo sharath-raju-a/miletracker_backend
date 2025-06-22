@@ -2,7 +2,6 @@ import os
 import asyncio
 from datetime import datetime
 from typing import List, Dict, Any, Optional
-import asyncpg
 from databases import Database
 import sqlalchemy as sa
 from sqlalchemy import MetaData, Table, Column, Integer, String, Float, DateTime, Boolean, Text, ForeignKey
@@ -12,7 +11,7 @@ import uuid
 # Database URL from environment variable or default to your Neon connection
 DATABASE_URL = os.getenv(
     "DATABASE_URL", 
-    "postgresql://miletracker_backend_owner:npg_4T5tcZnqKYrG@ep-still-waterfall-a5y97u5h-pooler.us-east-2.aws.neon.tech/miletracker_backend?sslmode=require"
+    "postgresql+psycopg2://miletracker_backend_owner:npg_4T5tcZnqKYrG@ep-still-waterfall-a5y97u5h-pooler.us-east-2.aws.neon.tech/miletracker_backend?sslmode=require"
 )
 
 # Create database instance
