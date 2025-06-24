@@ -87,6 +87,10 @@ async def startup():
 async def shutdown():
     await db_manager.disconnect()
 
+@app.get("/")
+def read_root():
+    return {"message": "MileTracker API is up and running!"}
+
 # Trip endpoints
 @app.get("/api/trips", response_model=List[Trip])
 async def get_trips():
