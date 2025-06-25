@@ -72,7 +72,7 @@ locations_table = Table(
     Column("id", Integer, primary_key=True, autoincrement=True),
     Column("latitude", Float, nullable=False),
     Column("longitude", Float, nullable=False),
-    Column("timestamp", BigInteger, nullable=False),  # Unix timestamp in milliseconds
+    Column("timestamp", sa.BigInteger, nullable=False),  # Unix timestamp in milliseconds
     Column("accuracy", Float),
     Column("altitude", Float),
     Column("speed", Float),
