@@ -228,7 +228,7 @@ async def get_receipts():
 async def upload_receipt(file: UploadFile = File(...)):
     try:
         
-        if not file.content_type or not file.content_type.startswith('image/'):Add commentMore actions
+        if not file.content_type or not file.content_type.startswith('image/'):
             raise HTTPException(status_code=400, detail="File must be an image")
 
         print(f"📁 Received file upload: {file.filename}")
