@@ -226,41 +226,127 @@ async def get_receipts():
 
 @app.post("/api/receipts/upload")
 async def upload_receipt(file: UploadFile = File(...)):
-    if not file.content_type or not file.content_type.startswith('image/'):
-        raise HTTPException(status_code=400, detail="File must be an image")
-    
-    # Generate unique filename
-    file_extension = file.filename.split('.')[-1] if '.' in file.filename else 'jpg'
-    unique_filename = f"{uuid.uuid4()}.{file_extension}"
-    file_path = f"uploads/receipts/{unique_filename}"
-    
-    # Save file
-    with open(file_path, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
-    
-    # Get file size
-    file_size = os.path.getsize(file_path)
-    
-    # Create receipt record in database
-    receipt_data = {
-        "id": str(uuid.uuid4()),
-        "url": f"/uploads/receipts/{unique_filename}",
-        "name": file.filename,
-        "date": datetime.now(),
-        "trip_id": None,
-        "file_size": file_size,
-        "mime_type": file.content_type
-    }
-    
-    created_receipt = await db_manager.create_receipt(receipt_data)
-    
-    return {
-        "id": created_receipt["id"],
-        "url": created_receipt["url"],
-        "name": created_receipt["name"],
-        "date": created_receipt["date"],
-        "tripId": created_receipt["trip_id"]
-    }
+    try:
+        print(f"📁 Received file upload: {file.filename}")
+        print(f"📁 Content type: {file.content_type}")
+        print(f"📁 File size: {file.size if hasattr(file, 'size') else 'unknown'}")
+        
+        # More flexible file type checking
+        allowed_extensions = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.tiff', '.tif'}
+        allowed_mime_types = {
+            'image/jpeg', 'image/jpg', 'image/png', 'image/gif', 
+            'image/bmp', 'image/webp', 'image/tiff', 'image/tif',
+            'application/octet-stream'  # Sometimes mobile uploads use this
+        }
+        
+        # Check file extension
+        file_extension = None
+        if file.filename and '.' in file.filename:
+            file_extension = '.' + file.filename.split('.')[-1].lower()
+        
+        # Validate file type
+        is_valid_file = False
+        
+        # Check by extension first
+        if file_extension and file_extension in allowed_extensions:
+            is_valid_file = True
+            print(f"✅ File validated by extension: {file_extension}")
+        
+        # Check by MIME type
+        elif file.content_type and file.content_type.lower() in allowed_mime_types:
+            is_valid_file = True
+            print(f"✅ File validated by MIME type: {file.content_type}")
+        
+        # If still not valid, check if it's from mobile (common case)
+        elif not file.content_type or file.content_type == 'application/octet-stream':
+            # Assume it's an image if no content type is provided (common with mobile uploads)
+            is_valid_file = True
+            file_extension = file_extension or '.jpg'  # Default to jpg
+            print(f"✅ File accepted as mobile upload, defaulting to: {file_extension}")
+        
+        if not is_valid_file:
+            print(f"❌ Invalid file type. Extension: {file_extension}, MIME: {file.content_type}")
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Invalid file type. Supported formats: {', '.join(allowed_extensions)}"
+            )
+        
+        # Generate unique filename
+        if not file_extension:
+            file_extension = '.jpg'  # Default extension
+        
+        unique_filename = f"{uuid.uuid4()}{file_extension}"
+        file_path = f"uploads/receipts/{unique_filename}"
+        
+        print(f"💾 Saving file to: {file_path}")
+        
+        # Save file
+        try:
+            with open(file_path, "wb") as buffer:
+                content = await file.read()
+                buffer.write(content)
+            print(f"✅ File saved successfully")
+        except Exception as e:
+            print(f"❌ Error saving file: {e}")
+            raise HTTPException(status_code=500, detail=f"Failed to save file: {str(e)}")
+        
+        # Get file size
+        file_size = os.path.getsize(file_path)
+        print(f"📊 File size: {file_size} bytes")
+        
+        # Determine MIME type for storage
+        mime_type = file.content_type
+        if not mime_type or mime_type == 'application/octet-stream':
+            # Set based on extension
+            mime_map = {
+                '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
+                '.png': 'image/png', '.gif': 'image/gif',
+                '.bmp': 'image/bmp', '.webp': 'image/webp',
+                '.tiff': 'image/tiff', '.tif': 'image/tiff'
+            }
+            mime_type = mime_map.get(file_extension, 'image/jpeg')
+        
+        # Create receipt record in database
+        receipt_data = {
+            "id": str(uuid.uuid4()),
+            "url": f"/uploads/receipts/{unique_filename}",
+            "name": file.filename or f"receipt{file_extension}",
+            "date": datetime.now(),
+            "trip_id": None,
+            "file_size": file_size,
+            "mime_type": mime_type
+        }
+        
+        print(f"💾 Creating database record: {receipt_data['id']}")
+        created_receipt = await db_manager.create_receipt(receipt_data)
+        print(f"✅ Receipt created successfully in database")
+        
+        response_data = {
+            "id": created_receipt["id"],
+            "url": created_receipt["url"],
+            "name": created_receipt["name"],
+            "date": created_receipt["date"],
+            "tripId": created_receipt["trip_id"]
+        }
+        
+        print(f"📤 Returning response: {response_data}")
+        return response_data
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Unexpected error in upload_receipt: {e}")
+        traceback.print_exc()
+        
+        # Clean up file if it was created
+        try:
+            if 'file_path' in locals() and os.path.exists(file_path):
+                os.remove(file_path)
+                print(f"🧹 Cleaned up file: {file_path}")
+        except:
+            pass
+            
+        raise HTTPException(status_code=500, detail=f"Failed to upload receipt: {str(e)}")
 
 @app.put("/api/receipts/{receipt_id}/tag")
 async def tag_receipt(receipt_id: str, tag_data: ReceiptTag):
