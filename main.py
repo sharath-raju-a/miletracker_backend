@@ -227,9 +227,6 @@ async def get_receipts():
 @app.post("/api/receipts/upload")
 async def upload_receipt(file: UploadFile = File(...)):
     try:
-        
-        if not file.content_type or not file.content_type.startswith('image/'):
-            raise HTTPException(status_code=400, detail="File must be an image")
 
         print(f"📁 Received file upload: {file.filename}")
         print(f"📁 Content type: {file.content_type}")
