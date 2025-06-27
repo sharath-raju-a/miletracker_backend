@@ -77,6 +77,18 @@ class TripUpdate(BaseModel):
 class ReceiptTag(BaseModel):
     tripId: Optional[int] = None
 
+# Helper function to format numbers properly
+def format_distance(distance: float) -> float:
+    """Format distance to 1 decimal place, or as integer if whole number"""
+    if distance == int(distance):
+        return float(int(distance))
+    else:
+        return round(distance, 1)
+
+def format_potential(potential: float) -> float:
+    """Format potential to 2 decimal places"""
+    return round(potential, 2)
+
 # Startup and shutdown events
 @app.on_event("startup")
 async def startup():
@@ -105,8 +117,8 @@ async def get_trips():
             "endTime": trip["end_time"],
             "startLocation": trip["start_location"],
             "endLocation": trip["end_location"],
-            "distance": trip["distance"],
-            "potential": trip["potential"],
+            "distance": format_distance(trip["distance"]),
+            "potential": format_potential(trip["potential"]),
             "type": trip["type"],
             "notes": trip["notes"]
         })
@@ -134,8 +146,8 @@ async def get_trip(trip_id: int):
         "endTime": trip["end_time"],
         "startLocation": trip["start_location"],
         "endLocation": trip["end_location"],
-        "distance": trip["distance"],
-        "potential": trip["potential"],
+        "distance": format_distance(trip["distance"]),
+        "potential": format_potential(trip["potential"]),
         "type": trip["type"],
         "notes": trip["notes"]
     }
@@ -148,8 +160,8 @@ async def create_trip(trip_data: TripCreate):
         "end_time": trip_data.endTime,
         "start_location": trip_data.startLocation,
         "end_location": trip_data.endLocation,
-        "distance": trip_data.distance,
-        "potential": trip_data.potential,
+        "distance": format_distance(trip_data.distance),
+        "potential": format_potential(trip_data.potential),
         "type": trip_data.type.value,
         "notes": trip_data.notes
     }
@@ -165,8 +177,8 @@ async def create_trip(trip_data: TripCreate):
         "endTime": created_trip["end_time"],
         "startLocation": created_trip["start_location"],
         "endLocation": created_trip["end_location"],
-        "distance": created_trip["distance"],
-        "potential": created_trip["potential"],
+        "distance": format_distance(created_trip["distance"]),
+        "potential": format_potential(created_trip["potential"]),
         "type": created_trip["type"],
         "notes": created_trip["notes"]
     }
@@ -195,8 +207,8 @@ async def update_trip(trip_id: int, trip_update: TripUpdate):
         "endTime": updated_trip["end_time"],
         "startLocation": updated_trip["start_location"],
         "endLocation": updated_trip["end_location"],
-        "distance": updated_trip["distance"],
-        "potential": updated_trip["potential"],
+        "distance": format_distance(updated_trip["distance"]),
+        "potential": format_potential(updated_trip["potential"]),
         "type": updated_trip["type"],
         "notes": updated_trip["notes"]
     }
