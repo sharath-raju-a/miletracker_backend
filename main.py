@@ -112,6 +112,15 @@ async def get_trips():
         })
     return trips
 
+@app.get("/api/trips/stats")
+async def get_trip_stats():
+    stats = await db_manager.get_trip_stats()
+    return {
+        "totalDrives": int(stats.get("total_drives", 0)),
+        "totalMiles": int(stats.get("total_miles", 0)),
+        "totalLogged": int(stats.get("total_logged", 0))
+    }
+
 @app.get("/api/trips/{trip_id}", response_model=Trip)
 async def get_trip(trip_id: int):
     trip = await db_manager.get_trip_by_id(trip_id)
@@ -162,14 +171,7 @@ async def create_trip(trip_data: TripCreate):
         "notes": created_trip["notes"]
     }
 
-@app.get("/api/trips/stats")
-async def get_trip_stats():
-    stats = await db_manager.get_trip_stats()
-    return {
-        "totalDrives": int(stats.get("total_drives", 0)),
-        "totalMiles": int(stats.get("total_miles", 0)),
-        "totalLogged": int(stats.get("total_logged", 0))
-    }
+
 
 @app.put("/api/trips/{trip_id}", response_model=Trip)
 async def update_trip(trip_id: int, trip_update: TripUpdate):
