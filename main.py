@@ -12,6 +12,27 @@ import json
 from pydantic import BaseModel
 from enum import Enum
 from database import db_manager
+from plaid.api import plaid_api
+from plaid.model.transactions_get_request import TransactionsGetRequest
+from plaid.model.accounts_get_request import AccountsGetRequest
+from plaid.model.item_public_token_exchange_request import ItemPublicTokenExchangeRequest
+from plaid.model.link_token_create_request import LinkTokenCreateRequest
+from plaid.model.link_token_create_request_user import LinkTokenCreateRequestUser
+from plaid.model.country_code import CountryCode
+from plaid.model.products import Products
+from plaid.configuration import Configuration
+from plaid.api_client import ApiClient
+import os
+
+configuration = Configuration(
+    host=getattr(plaid.Environment, os.getenv('PLAID_ENV', 'sandbox')),
+    api_key={
+        'clientId': os.getenv('PLAID_CLIENT_ID'),
+        'secret': os.getenv('PLAID_SECRET')
+    }
+)
+api_client = ApiClient(configuration)
+client = plaid_api.PlaidApi(api_client)
 
 app = FastAPI(title="MileTracker API", version="1.0.0")
 
@@ -494,6 +515,37 @@ async def get_database_info():
         return info
     except Exception as e:
         return {"error": str(e)}
+
+# Add to your existing main.py
+@app.post("/api/plaid/create-link-token")
+async def create_link_token(request: dict):
+    try:
+        link_request = LinkTokenCreateRequest(
+            products=[Products('transactions')],
+            client_name="MileTracker",
+            country_codes=[CountryCode('US')],
+            language='en',
+            user=LinkTokenCreateRequestUser(client_user_id=request.get('user_id', 'user'))
+        )
+        response = client.link_token_create(link_request)
+        return {"link_token": response['link_token']}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/plaid/exchange-token") 
+async def exchange_token(request: dict):
+    # Implementation for exchanging public token
+    pass
+
+@app.post("/api/plaid/accounts")
+async def get_accounts(request: dict):
+    # Implementation for getting account data
+    pass
+
+@app.post("/api/plaid/transactions")
+async def get_transactions(request: dict):
+    # Implementation for getting transactions
+    pass
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)

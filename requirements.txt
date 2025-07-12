@@ -6,3 +6,4 @@ passlib[bcrypt]==1.7.4
 asyncpg
 databases[postgresql]
 psycopg2-binary
+plaid-python==9.1.0
