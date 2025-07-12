@@ -23,6 +23,7 @@ from plaid.model.products import Products
 from plaid.configuration import Configuration
 from plaid.api_client import ApiClient
 import os
+import plaid
 
 configuration = Configuration(
     host=getattr(plaid.Environment, os.getenv('PLAID_ENV', 'sandbox')),
