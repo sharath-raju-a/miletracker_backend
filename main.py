@@ -26,7 +26,7 @@ import os
 import plaid
 
 configuration = Configuration(
-    host=getattr(plaid.Environment, os.getenv('PLAID_ENV', 'sandbox')),
+    host=getattr(plaid.Environment, os.getenv('PLAID_ENV', 'Sandbox')),
     api_key={
         'clientId': os.getenv('PLAID_CLIENT_ID'),
         'secret': os.getenv('PLAID_SECRET')
