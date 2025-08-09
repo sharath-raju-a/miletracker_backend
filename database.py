@@ -408,7 +408,7 @@ class DatabaseManager:
     # Plaid account operations
     # -----------------------
 
-    async def create_plaid_account(self, user_id: int, data: Dict[str, Any]) -> Dict[str, Any]:
+    async def create_plaid_account(self, user_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
         """
         Upsert one account row (per user_id, item_id, account_id).
         If an inactive row exists, reactivate it; otherwise insert.
@@ -487,7 +487,7 @@ class DatabaseManager:
         )
         return dict(row) if row else {}
 
-    async def get_user_plaid_accounts(self, user_id: int, item_id: Optional[str] = None) -> List[Dict[str, Any]]:
+    async def get_user_plaid_accounts(self, user_id: str, item_id: Optional[str] = None) -> List[Dict[str, Any]]:
         params = {"user_id": user_id}
         filt = "AND item_id = :item_id" if item_id else ""
         if item_id:
@@ -503,7 +503,7 @@ class DatabaseManager:
         )
         return [dict(r) for r in rows]
 
-    async def get_plaid_account_by_item_id(self, user_id: int, item_id: str) -> Optional[Dict[str, Any]]:
+    async def get_plaid_account_by_item_id(self, user_id: str, item_id: str) -> Optional[Dict[str, Any]]:
         row = await self.database.fetch_one(
             """
             SELECT * FROM plaid_accounts
@@ -514,7 +514,7 @@ class DatabaseManager:
         )
         return dict(row) if row else None
 
-    async def get_any_active_plaid_account(self, user_id: int, item_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    async def get_any_active_plaid_account(self, user_id: str, item_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
         params = {"user_id": user_id}
         filt = "AND item_id = :item_id" if item_id else ""
         if item_id:
@@ -531,7 +531,7 @@ class DatabaseManager:
         )
         return dict(row) if row else None
 
-    async def deactivate_plaid_account(self, user_id: int, item_id: str) -> bool:
+    async def deactivate_plaid_account(self, user_id: str, item_id: str) -> bool:
         result = await self.database.execute(
             """
             UPDATE plaid_accounts
@@ -547,7 +547,7 @@ class DatabaseManager:
 
     async def check_plaid_account_exists(
         self,
-        user_id: int,
+        user_id: str,
         item_id: Optional[str] = None,
         account_id: Optional[str] = None,
     ) -> bool:
