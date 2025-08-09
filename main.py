@@ -27,6 +27,9 @@ import os
 import plaid
 import traceback
 from auth import get_current_user, get_current_user_dev
+from plaid.model.item_get_request import ItemGetRequest
+from plaid.api_client import ApiException as PlaidApiException
+
 
 configuration = Configuration(
     host=Environment.Sandbox,
