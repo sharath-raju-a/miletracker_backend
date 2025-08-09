@@ -109,7 +109,6 @@ class PlaidRemoveAccountRequest(BaseModel):
     access_token: str
 
 class PlaidLinkTokenRequest(BaseModel):
-    user_id: str
     platform: Optional[str] = None  # "android" | "ios" | "web"
 
 class ExchangeTokenRequest(BaseModel):
@@ -550,27 +549,35 @@ async def get_database_info():
 
 # Add to your existing main.py
 @app.post("/api/plaid/create-link-token")
-def create_link_token(req: PlaidLinkTokenRequest):
+def create_link_token(
+    req: PlaidLinkTokenRequest,
+    current_user = Depends(get_current_user_dev),
+):
     try:
+        uid = current_user["id"]  # Firebase UID from header
+
         link_req = LinkTokenCreateRequest(
             products=[Products("transactions")],
             client_name="MileTracker",
             country_codes=[CountryCode("US")],
             language="en",
-            user=LinkTokenCreateRequestUser(client_user_id=req.user_id)
+            user=LinkTokenCreateRequestUser(client_user_id=uid),
         )
 
-        # Platform specifics
-        if (req.platform or "").lower() == "android":
+        # Only set android_package_name when platform == android
+        platform = (req.platform or "").lower()
+        if platform == "android":
+            # MUST match the value configured in Plaid Dashboard → Allowed Android Package Names
             link_req.android_package_name = "com.example.miletracker_flutterapp"
-        elif (req.platform or "").lower() == "web":
-            # If you have an OAuth redirect page, set it here & allow in dashboard
+        elif platform in ("ios", "web"):
+            # If you use OAuth flows on web/ios, you can set redirect_uri here (and in dashboard)
             # link_req.redirect_uri = "https://yourapp.com/oauth.html"
             pass
 
         resp = client.link_token_create(link_req)
         return {"link_token": resp.link_token}
     except Exception as e:
+        # You’ll see precise Plaid errors here if something is misconfigured
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/plaid/exchange-token")
@@ -661,8 +668,9 @@ async def disconnect_plaid_account(
     return {"message": "Account disconnected successfully"}
 
 @app.get("/api/plaid/connection-status")
-async def get_plaid_connection_status(current_user: dict = Depends(get_current_user)):
+async def get_plaid_connection_status(current_user: dict = Depends(get_current_user_dev)):
     """Check if user has any linked Plaid accounts"""
+    user_id = current_user["id"]
     has_accounts = await db_manager.check_plaid_account_exists(current_user["id"])
     accounts = await db_manager.get_user_plaid_accounts(current_user["id"]) if has_accounts else []
     

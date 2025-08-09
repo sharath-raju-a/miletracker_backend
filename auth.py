@@ -24,3 +24,10 @@ def get_current_user(token: str = Depends(oauth2_scheme)) -> dict:
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid authentication credentials",
         )
+
+
+async def get_current_user_dev(x_user_id: str | None = Header(None, alias="X-User-Id")):
+    if not x_user_id:
+        raise HTTPException(status_code=401, detail="X-User-Id header missing")
+    # Return the UID as your "user identity" for now
+    return {"id": x_user_id, "firebase_uid": x_user_id}
