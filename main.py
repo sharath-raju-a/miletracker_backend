@@ -1,11 +1,11 @@
-from fastapi import FastAPI, HTTPException, UploadFile, File, Form
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 import uvicorn
 import os
 import shutil
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from typing import List, Optional, Dict
 import uuid
 import json
@@ -25,6 +25,7 @@ from plaid.configuration import Configuration, Environment
 from plaid.api_client import ApiClient
 import os
 import plaid
+import traceback
 
 configuration = Configuration(
     host=Environment.Sandbox,
@@ -103,20 +104,6 @@ class TripUpdate(BaseModel):
 class ReceiptTag(BaseModel):
     tripId: Optional[int] = None
 
-class PlaidLinkTokenRequest(BaseModel):
-    user_id: str
-
-class PlaidExchangeTokenRequest(BaseModel):
-    public_token: str
-
-class PlaidAccountsRequest(BaseModel):
-    access_token: str
-
-class PlaidTransactionsRequest(BaseModel):
-    access_token: str
-    start_date: Optional[str] = None
-    end_date: Optional[str] = None
-
 class PlaidRemoveAccountRequest(BaseModel):
     access_token: str
 
@@ -124,11 +111,9 @@ class PlaidLinkTokenRequest(BaseModel):
     user_id: str
     platform: Optional[str] = None  # "android" | "ios" | "web"
 
-
 class ExchangeTokenRequest(BaseModel):
     user_id: str
     public_token: str
-
 
 class AccountsRequest(BaseModel):
     user_id: str
@@ -560,114 +545,199 @@ async def get_database_info():
 
 # Add to your existing main.py
 @app.post("/api/plaid/create-link-token")
-def create_link_token(request: PlaidLinkTokenRequest):
+def create_link_token(req: PlaidLinkTokenRequest):
     try:
-        link_request = LinkTokenCreateRequest(
-            products=[Products('transactions')],
+        link_req = LinkTokenCreateRequest(
+            products=[Products("transactions")],
             client_name="MileTracker",
             country_codes=[CountryCode("US")],
             language="en",
-            user=LinkTokenCreateRequestUser(client_user_id=request.user_id)
+            user=LinkTokenCreateRequestUser(client_user_id=req.user_id)
         )
-        link_request.android_package_name = 'com.example.miletracker_flutterapp'
-        print("Request created successfully")
-        print(f"🔍 Request details:")
-        print(f"   Products: {link_request.products}")
-        print(f"   Client name: {link_request.client_name}")
-        print(f"   Country codes: {link_request.country_codes}")
-        print(f"   User ID: {link_request.user.client_user_id}")
-        response = client.link_token_create(link_request)
-        print("Link token created successfully")
-        link_token = response.link_token
-        print(f"✅ Link token created successfully: {link_token[:20]}...")
-        return {"link_token": response['link_token']}
+
+        # Platform specifics
+        if (req.platform or "").lower() == "android":
+            link_req.android_package_name = "com.example.miletracker_flutterapp"
+        elif (req.platform or "").lower() == "web":
+            # If you have an OAuth redirect page, set it here & allow in dashboard
+            # link_req.redirect_uri = "https://yourapp.com/oauth.html"
+            pass
+
+        resp = client.link_token_create(link_req)
+        return {"link_token": resp.link_token}
     except Exception as e:
-        print(str(e))
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/plaid/exchange-token")
-def exchange_token(request: ExchangeTokenRequest):
+async def exchange_plaid_token(body: ExchangeTokenRequest):
     try:
-        if not request.public_token:
-            raise HTTPException(status_code=400, detail="public_token is required")
-        if not request.user_id:
-            raise HTTPException(status_code=400, detail="user_id is required")
+        # 1) Exchange public token
+        ex_req = ItemPublicTokenExchangeRequest(public_token=body.public_token)
+        ex_resp = client.item_public_token_exchange(ex_req)
+        access_token = ex_resp.access_token
+        item_id = ex_resp.item_id
 
-        exchange_req = ItemPublicTokenExchangeRequest(public_token=request.public_token)
-        exchange_resp = client.item_public_token_exchange(exchange_req)
+        # 2) Fetch accounts from Plaid now
+        acc_req = AccountsGetRequest(access_token=access_token)
+        acc_resp = client.accounts_get(acc_req)
 
-        access_token = exchange_resp.access_token
-        item_id = exchange_resp.item_id
+        # (Optional) You can look up institution via /institutions/get_by_id if you want
+        institution_id = None
+        institution_name = None
 
-        # Store access_token for this user (REPLACE with secure DB storage in production)
-        ACCESS_TOKENS[request.user_id] = access_token
+        # 3) Persist: one row per account
+        # NOTE: Replace these with your db_manager methods
+        for a in acc_resp.accounts:
+            account_data = {
+                "access_token": access_token,
+                "item_id": item_id,
+                "institution_id": institution_id,
+                "institution_name": institution_name,
+                "account_id": a.account_id,
+                "account_name": a.name,
+                "account_type": a.type,
+                "account_subtype": a.subtype,
+                "mask": a.mask,
+            }
+            await db_manager.create_plaid_account(user_id=body.user_id, data=account_data)
 
-        return {"status": "linked", "item_id": item_id}
-    except HTTPException:
-        raise
+        return {"success": True, "item_id": item_id, "accounts_linked": len(acc_resp.accounts)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
+@app.delete("/api/plaid/disconnect/{item_id}")
+async def disconnect_plaid_account(
+    item_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Disconnect a specific Plaid account"""
+    success = await db_manager.deactivate_plaid_account(current_user["id"], item_id)
+    
+    if not success:
+        raise HTTPException(status_code=404, detail="Account not found")
+    
+    return {"message": "Account disconnected successfully"}
+
+@app.get("/api/plaid/connection-status")
+async def get_plaid_connection_status(current_user: dict = Depends(get_current_user)):
+    """Check if user has any linked Plaid accounts"""
+    has_accounts = await db_manager.check_plaid_account_exists(current_user["id"])
+    accounts = await db_manager.get_user_plaid_accounts(current_user["id"]) if has_accounts else []
+    
+    return {
+        "has_connection": has_accounts,
+        "account_count": len(accounts),
+        "accounts": [
+            {
+                "item_id": account["item_id"],
+                "institution_name": account["institution_name"],
+                "account_name": account["account_name"],
+                "account_type": account["account_type"],
+                "mask": account["mask"],
+                "created_at": account["created_at"].isoformat() if account["created_at"] else None
+            }
+            for account in accounts
+        ]
+    }
+
+@app.post("/api/plaid/check-account-linked")
+async def check_account_linked(
+    check_data: PlaidAccountCheck,
+    current_user: dict = Depends(get_current_user)
+):
+    """Check if a specific account or item is already linked"""
+    if check_data.item_id:
+        exists = await db_manager.check_plaid_account_exists(
+            current_user["id"], 
+            item_id=check_data.item_id
+        )
+        return {"is_linked": exists, "check_type": "item_id"}
+    elif check_data.account_id:
+        exists = await db_manager.check_plaid_account_exists(
+            current_user["id"], 
+            account_id=check_data.account_id
+        )
+        return {"is_linked": exists, "check_type": "account_id"}
+    else:
+        raise HTTPException(
+            status_code=400, 
+            detail="Either item_id or account_id must be provided"
+        )
 
 # -------------------------------
 # Get accounts for a linked user
 # -------------------------------
 @app.post("/api/plaid/accounts")
-def get_accounts(request: AccountsRequest):
-    try:
-        access_token = ACCESS_TOKENS.get(request.user_id)
-        if not access_token:
-            raise HTTPException(
-                status_code=404,
-                detail="No access_token found for user. Link an account first.",
-            )
-
-        acc_req = AccountsGetRequest(access_token=access_token)
-        acc_resp = client.accounts_get(acc_req)
-
-        return acc_resp.to_dict()
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+async def get_plaid_accounts(body: AccountsRequest):
+    accounts = await db_manager.get_user_plaid_accounts(body.user_id, item_id=body.item_id)
+    return {
+        "accounts": [
+            {
+                "id": a["id"],
+                "item_id": a["item_id"],
+                "institution_name": a["institution_name"],
+                "account_id": a["account_id"],
+                "account_name": a["account_name"],
+                "account_type": a["account_type"],
+                "account_subtype": a["account_subtype"],
+                "mask": a["mask"],
+                "created_at": a["created_at"].isoformat() if a.get("created_at") else None
+            }
+            for a in accounts
+        ]
+    }
 
 
 # ----------------------------------------
 # Get transactions for a date range (simple)
 # ----------------------------------------
 @app.post("/api/plaid/transactions")
-def get_transactions(request: TransactionsRequest):
+async def get_transactions(body: TransactionsRequest):
     try:
-        access_token = ACCESS_TOKENS.get(request.user_id)
-        if not access_token:
-            raise HTTPException(
-                status_code=404,
-                detail="No access_token found for user. Link an account first.",
-            )
-
-        # Defaults: last 30 days
-        end_dt = request.end_date or date.today()
-        start_dt = request.start_date or (end_dt - timedelta(days=30))
-
-        # Optional pagination
-        options = TransactionsGetRequestOptions(
-            count=request.count if request.count is not None else 100,
-            offset=request.offset if request.offset is not None else 0,
+        # pick one active row for this user (optionally filtered by item)
+        row = await db_manager.get_any_active_plaid_account(
+            user_id=body.user_id,
+            item_id=body.item_id
         )
+        if not row:
+            raise HTTPException(status_code=404, detail="No access_token found for user. Link an account first.")
 
+        access_token = row["access_token"]
+
+        end_dt = body.end_date or date.today()
+        start_dt = body.start_date or (end_dt - timedelta(days=30))
+
+        options = TransactionsGetRequestOptions(
+            count=body.count or 100,
+            offset=body.offset or 0
+        )
         tx_req = TransactionsGetRequest(
             access_token=access_token,
             start_date=start_dt,
             end_date=end_dt,
-            options=options,
+            options=options
         )
         tx_resp = client.transactions_get(tx_req)
-
         return tx_resp.to_dict()
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.exception_handler(404)
+async def not_found_handler(request, exc):
+    return JSONResponse(
+        status_code=404,
+        content={"detail": "Endpoint not found"}
+    )
+
+@app.exception_handler(500)
+async def internal_error_handler(request, exc):
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Internal server error"}
+    )
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)

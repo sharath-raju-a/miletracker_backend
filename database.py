@@ -103,6 +103,26 @@ trip_stats_table = Table(
     Column("updated_at", DateTime, default=datetime.utcnow, onupdate=datetime.utcnow),
 )
 
+plaid_accounts_table = Table(
+    "plaid_accounts",
+    metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("user_id", Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True),
+    Column("access_token", Text, nullable=False),
+    Column("item_id", Text, nullable=False, index=True),
+    Column("institution_id", Text),
+    Column("institution_name", Text),
+    Column("account_id", Text, nullable=False, index=True),
+    Column("account_name", Text),
+    Column("account_type", Text),
+    Column("account_subtype", Text),
+    Column("mask", Text),
+    Column("is_active", Boolean, nullable=False, server_default=sa.text("true")),
+    Column("created_at", DateTime, default=datetime.utcnow),
+    Column("updated_at", DateTime, default=datetime.utcnow, onupdate=datetime.utcnow),
+)
+
+
 class DatabaseManager:
     def __init__(self):
         self.database = database
@@ -383,6 +403,186 @@ class DatabaseManager:
     async def update_trip_stats(self):
         """Recalculate and update trip statistics"""
         return await self.calculate_trip_stats()
+
+        # -----------------------
+    # Plaid account operations
+    # -----------------------
+
+    async def create_plaid_account(self, user_id: int, data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Upsert one account row (per user_id, item_id, account_id).
+        If an inactive row exists, reactivate it; otherwise insert.
+        """
+        # Check if a row exists (active or inactive)
+        existing = await self.database.fetch_one(
+            """
+            SELECT * FROM plaid_accounts
+            WHERE user_id = :user_id AND item_id = :item_id AND account_id = :account_id
+            """,
+            {
+                "user_id": user_id,
+                "item_id": data["item_id"],
+                "account_id": data["account_id"],
+            },
+        )
+
+        if existing:
+            # Reactivate + update fields
+            await self.database.execute(
+                """
+                UPDATE plaid_accounts
+                SET
+                    access_token = :access_token,
+                    institution_id = :institution_id,
+                    institution_name = :institution_name,
+                    account_name = :account_name,
+                    account_type = :account_type,
+                    account_subtype = :account_subtype,
+                    mask = :mask,
+                    is_active = TRUE,
+                    updated_at = NOW()
+                WHERE user_id = :user_id AND item_id = :item_id AND account_id = :account_id
+                """,
+                {
+                    "user_id": user_id,
+                    "item_id": data["item_id"],
+                    "account_id": data["account_id"],
+                    "access_token": data["access_token"],
+                    "institution_id": data.get("institution_id"),
+                    "institution_name": data.get("institution_name"),
+                    "account_name": data.get("account_name"),
+                    "account_type": data.get("account_type"),
+                    "account_subtype": data.get("account_subtype"),
+                    "mask": data.get("mask"),
+                },
+            )
+        else:
+            # Insert new
+            await self.database.execute(
+                plaid_accounts_table.insert().values(
+                    user_id=user_id,
+                    access_token=data["access_token"],
+                    item_id=data["item_id"],
+                    institution_id=data.get("institution_id"),
+                    institution_name=data.get("institution_name"),
+                    account_id=data["account_id"],
+                    account_name=data.get("account_name"),
+                    account_type=data.get("account_type"),
+                    account_subtype=data.get("account_subtype"),
+                    mask=data.get("mask"),
+                )
+            )
+
+        # Return the row
+        row = await self.database.fetch_one(
+            """
+            SELECT * FROM plaid_accounts
+            WHERE user_id = :user_id AND item_id = :item_id AND account_id = :account_id
+            """,
+            {
+                "user_id": user_id,
+                "item_id": data["item_id"],
+                "account_id": data["account_id"],
+            },
+        )
+        return dict(row) if row else {}
+
+    async def get_user_plaid_accounts(self, user_id: int, item_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        params = {"user_id": user_id}
+        filt = "AND item_id = :item_id" if item_id else ""
+        if item_id:
+            params["item_id"] = item_id
+
+        rows = await self.database.fetch_all(
+            f"""
+            SELECT * FROM plaid_accounts
+            WHERE user_id = :user_id AND is_active = TRUE {filt}
+            ORDER BY created_at DESC
+            """,
+            params,
+        )
+        return [dict(r) for r in rows]
+
+    async def get_plaid_account_by_item_id(self, user_id: int, item_id: str) -> Optional[Dict[str, Any]]:
+        row = await self.database.fetch_one(
+            """
+            SELECT * FROM plaid_accounts
+            WHERE user_id = :user_id AND item_id = :item_id AND is_active = TRUE
+            LIMIT 1
+            """,
+            {"user_id": user_id, "item_id": item_id},
+        )
+        return dict(row) if row else None
+
+    async def get_any_active_plaid_account(self, user_id: int, item_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        params = {"user_id": user_id}
+        filt = "AND item_id = :item_id" if item_id else ""
+        if item_id:
+            params["item_id"] = item_id
+
+        row = await self.database.fetch_one(
+            f"""
+            SELECT * FROM plaid_accounts
+            WHERE user_id = :user_id AND is_active = TRUE {filt}
+            ORDER BY created_at DESC
+            LIMIT 1
+            """,
+            params,
+        )
+        return dict(row) if row else None
+
+    async def deactivate_plaid_account(self, user_id: int, item_id: str) -> bool:
+        result = await self.database.execute(
+            """
+            UPDATE plaid_accounts
+            SET is_active = FALSE, updated_at = NOW()
+            WHERE user_id = :user_id AND item_id = :item_id AND is_active = TRUE
+            """,
+            {"user_id": user_id, "item_id": item_id},
+        )
+        # databases returns last inserted id for INSERT; for UPDATE it returns None.
+        # So we can re-check count:
+        row = await self.get_plaid_account_by_item_id(user_id, item_id)
+        return row is None  # no active account left for that item
+
+    async def check_plaid_account_exists(
+        self,
+        user_id: int,
+        item_id: Optional[str] = None,
+        account_id: Optional[str] = None,
+    ) -> bool:
+        if item_id:
+            val = await self.database.fetch_val(
+                """
+                SELECT 1 FROM plaid_accounts
+                WHERE user_id = :user_id AND item_id = :item_id AND is_active = TRUE
+                LIMIT 1
+                """,
+                {"user_id": user_id, "item_id": item_id},
+            )
+            return val is not None
+
+        if account_id:
+            val = await self.database.fetch_val(
+                """
+                SELECT 1 FROM plaid_accounts
+                WHERE user_id = :user_id AND account_id = :account_id AND is_active = TRUE
+                LIMIT 1
+                """,
+                {"user_id": user_id, "account_id": account_id},
+            )
+            return val is not None
+
+        val = await self.database.fetch_val(
+            """
+            SELECT 1 FROM plaid_accounts
+            WHERE user_id = :user_id AND is_active = TRUE
+            LIMIT 1
+            """,
+            {"user_id": user_id},
+        )
+        return val is not None
+
 
 # Global database manager instance
 db_manager = DatabaseManager()
