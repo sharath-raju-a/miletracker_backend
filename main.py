@@ -587,6 +587,7 @@ def create_link_token(
 async def exchange_plaid_token(body: ExchangeTokenRequest):
     try:
         # 1) Exchange public_token -> access_token
+        print(f"Public Token {body.public_token}")
         ex_req = ItemPublicTokenExchangeRequest(public_token=body.public_token)
         ex_resp = client.item_public_token_exchange(ex_req)
         access_token = ex_resp.access_token
@@ -598,17 +599,22 @@ async def exchange_plaid_token(body: ExchangeTokenRequest):
         try:
             item_resp = client.item_get(ItemGetRequest(access_token=access_token))
             institution_id = item_resp.item.institution_id
+            print(f"Institution id {institution_id}")
             if institution_id:
                 inst_resp = client.institutions_get_by_id(
                     InstitutionsGetByIdRequest(institution_id=institution_id, country_codes=[CountryCode("US")])
                 )
                 institution_name = inst_resp.institution.name
+                print(f"Institution Name {institution_name}")
         except PlaidApiException:
             # Not fatal; we can still proceed without institution name
             pass
 
         # 3) Fetch accounts for the Item
         acc_resp = client.accounts_get(AccountsGetRequest(access_token=access_token))
+
+        print("Successful until getting accounts")
+        print(f"Account response {acc_resp}")
 
         # 4) Upsert per account (avoid duplicates for same user+item)
         #    You said you have a unique index on (user_id, item_id) WHERE is_active = TRUE.
