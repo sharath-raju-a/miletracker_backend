@@ -600,16 +600,17 @@ async def exchange_plaid_token(body: ExchangeTokenRequest):
             item_resp = client.item_get(ItemGetRequest(access_token=access_token))
             institution_id = item_resp.item.institution_id
             print(f"Institution id {institution_id}")
-            if institution_id:
-                inst_resp = client.institutions_get_by_id(
-                    InstitutionsGetByIdRequest(institution_id=institution_id, country_codes=[CountryCode("US")])
-                )
-                institution_name = inst_resp.institution.name
-                print(f"Institution Name {institution_name}")
+            # if institution_id:
+            #     inst_resp = client.institutions_get_by_id(
+            #         InstitutionsGetByIdRequest(institution_id=institution_id, country_codes=[CountryCode("US")])
+            #     )
+            #     institution_name = inst_resp.institution.name
+            #     print(f"Institution Name {institution_name}")
+            institution_name = None
         except PlaidApiException:
             # Not fatal; we can still proceed without institution name
             pass
-
+        print("Before account retrieval")
         # 3) Fetch accounts for the Item
         acc_resp = client.accounts_get(AccountsGetRequest(access_token=access_token))
 
