@@ -641,6 +641,8 @@ async def exchange_plaid_token(body: ExchangeTokenRequest):
             }
             await db_manager.create_plaid_account(user_id=body.user_id, data=account_data)
             created += 1
+        
+        print("After inserting user data in database")
 
         return {
             "success": True,

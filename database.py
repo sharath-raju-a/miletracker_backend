@@ -414,78 +414,85 @@ class DatabaseManager:
         If an inactive row exists, reactivate it; otherwise insert.
         """
         # Check if a row exists (active or inactive)
-        existing = await self.database.fetch_one(
-            """
-            SELECT * FROM plaid_accounts
-            WHERE user_id = :user_id AND item_id = :item_id AND account_id = :account_id
-            """,
-            {
-                "user_id": user_id,
-                "item_id": data["item_id"],
-                "account_id": data["account_id"],
-            },
-        )
-
-        if existing:
-            # Reactivate + update fields
-            await self.database.execute(
+        try:
+            print("Inside create plaid account existing account check")
+            existing = await self.database.fetch_one(
                 """
-                UPDATE plaid_accounts
-                SET
-                    access_token = :access_token,
-                    institution_id = :institution_id,
-                    institution_name = :institution_name,
-                    account_name = :account_name,
-                    account_type = :account_type,
-                    account_subtype = :account_subtype,
-                    mask = :mask,
-                    is_active = TRUE,
-                    updated_at = NOW()
+                SELECT * FROM plaid_accounts
                 WHERE user_id = :user_id AND item_id = :item_id AND account_id = :account_id
                 """,
                 {
                     "user_id": user_id,
                     "item_id": data["item_id"],
                     "account_id": data["account_id"],
-                    "access_token": data["access_token"],
-                    "institution_id": data.get("institution_id"),
-                    "institution_name": data.get("institution_name"),
-                    "account_name": data.get("account_name"),
-                    "account_type": data.get("account_type"),
-                    "account_subtype": data.get("account_subtype"),
-                    "mask": data.get("mask"),
                 },
             )
-        else:
-            # Insert new
-            await self.database.execute(
-                plaid_accounts_table.insert().values(
-                    user_id=user_id,
-                    access_token=data["access_token"],
-                    item_id=data["item_id"],
-                    institution_id=data.get("institution_id"),
-                    institution_name=data.get("institution_name"),
-                    account_id=data["account_id"],
-                    account_name=data.get("account_name"),
-                    account_type=data.get("account_type"),
-                    account_subtype=data.get("account_subtype"),
-                    mask=data.get("mask"),
+            print(f"exists or not {existing}")
+            if existing:
+                # Reactivate + update fields
+                await self.database.execute(
+                    """
+                    UPDATE plaid_accounts
+                    SET
+                        access_token = :access_token,
+                        institution_id = :institution_id,
+                        institution_name = :institution_name,
+                        account_name = :account_name,
+                        account_type = :account_type,
+                        account_subtype = :account_subtype,
+                        mask = :mask,
+                        is_active = TRUE,
+                        updated_at = NOW()
+                    WHERE user_id = :user_id AND item_id = :item_id AND account_id = :account_id
+                    """,
+                    {
+                        "user_id": user_id,
+                        "item_id": data["item_id"],
+                        "account_id": data["account_id"],
+                        "access_token": data["access_token"],
+                        "institution_id": data.get("institution_id"),
+                        "institution_name": data.get("institution_name"),
+                        "account_name": data.get("account_name"),
+                        "account_type": data.get("account_type"),
+                        "account_subtype": data.get("account_subtype"),
+                        "mask": data.get("mask"),
+                    },
                 )
-            )
+            else:
+                # Insert new
+                print("Inside else")
+                await self.database.execute(
+                    plaid_accounts_table.insert().values(
+                        user_id=user_id,
+                        access_token=data["access_token"],
+                        item_id=data["item_id"],
+                        institution_id=data.get("institution_id"),
+                        institution_name=data.get("institution_name"),
+                        account_id=data["account_id"],
+                        account_name=data.get("account_name"),
+                        account_type=data.get("account_type"),
+                        account_subtype=data.get("account_subtype"),
+                        mask=data.get("mask"),
+                    )
+                )
+                print("After account creation")
 
-        # Return the row
-        row = await self.database.fetch_one(
-            """
-            SELECT * FROM plaid_accounts
-            WHERE user_id = :user_id AND item_id = :item_id AND account_id = :account_id
-            """,
-            {
-                "user_id": user_id,
-                "item_id": data["item_id"],
-                "account_id": data["account_id"],
-            },
-        )
-        return dict(row) if row else {}
+            # Return the row
+            row = await self.database.fetch_one(
+                """
+                SELECT * FROM plaid_accounts
+                WHERE user_id = :user_id AND item_id = :item_id AND account_id = :account_id
+                """,
+                {
+                    "user_id": user_id,
+                    "item_id": data["item_id"],
+                    "account_id": data["account_id"],
+                },
+            )
+            return dict(row) if row else {}
+        except Exception as e:
+            print("Exception occured while creating")
+            print("Creation error:", repr(e))
 
     async def get_user_plaid_accounts(self, user_id: str, item_id: Optional[str] = None) -> List[Dict[str, Any]]:
         params = {"user_id": user_id}
