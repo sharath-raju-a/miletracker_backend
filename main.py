@@ -126,6 +126,10 @@ class TransactionsRequest(BaseModel):
     count: Optional[int] = 100         # page size (Plaid default 100, max 500)
     offset: Optional[int] = 0 
 
+class PlaidAccountCheck(BaseModel):
+    item_id: Optional[str] = None
+    account_id: Optional[str] = None
+
 # Helper function to format numbers properly
 def format_distance(distance: float) -> float:
     """Format distance to 1 decimal place, or as integer if whole number"""
@@ -572,22 +576,40 @@ def create_link_token(req: PlaidLinkTokenRequest):
 @app.post("/api/plaid/exchange-token")
 async def exchange_plaid_token(body: ExchangeTokenRequest):
     try:
-        # 1) Exchange public token
+        # 1) Exchange public_token -> access_token
         ex_req = ItemPublicTokenExchangeRequest(public_token=body.public_token)
         ex_resp = client.item_public_token_exchange(ex_req)
         access_token = ex_resp.access_token
         item_id = ex_resp.item_id
 
-        # 2) Fetch accounts from Plaid now
-        acc_req = AccountsGetRequest(access_token=access_token)
-        acc_resp = client.accounts_get(acc_req)
-
-        # (Optional) You can look up institution via /institutions/get_by_id if you want
+        # 2) Get institution id from the Item (optional but useful)
         institution_id = None
         institution_name = None
+        try:
+            item_resp = client.item_get(ItemGetRequest(access_token=access_token))
+            institution_id = item_resp.item.institution_id
+            if institution_id:
+                inst_resp = client.institutions_get_by_id(
+                    InstitutionsGetByIdRequest(institution_id=institution_id, country_codes=[CountryCode("US")])
+                )
+                institution_name = inst_resp.institution.name
+        except PlaidApiException:
+            # Not fatal; we can still proceed without institution name
+            pass
 
-        # 3) Persist: one row per account
-        # NOTE: Replace these with your db_manager methods
+        # 3) Fetch accounts for the Item
+        acc_resp = client.accounts_get(AccountsGetRequest(access_token=access_token))
+
+        # 4) Upsert per account (avoid duplicates for same user+item)
+        #    You said you have a unique index on (user_id, item_id) WHERE is_active = TRUE.
+        #    We'll check first; if exists, update access_token and continue.
+        existing = await db_manager.get_plaid_account_by_item_id(user_id=body.user_id, item_id=item_id)
+        if existing:
+            await db_manager.update_plaid_access_token(user_id=body.user_id, item_id=item_id, access_token=access_token)
+            # (Optionally) clear old account rows for this item and re-insert (keeps accounts in sync)
+            await db_manager.delete_plaid_accounts_for_item(user_id=body.user_id, item_id=item_id)
+
+        created = 0
         for a in acc_resp.accounts:
             account_data = {
                 "access_token": access_token,
@@ -601,8 +623,26 @@ async def exchange_plaid_token(body: ExchangeTokenRequest):
                 "mask": a.mask,
             }
             await db_manager.create_plaid_account(user_id=body.user_id, data=account_data)
+            created += 1
 
-        return {"success": True, "item_id": item_id, "accounts_linked": len(acc_resp.accounts)}
+        return {
+            "success": True,
+            "item_id": item_id,
+            "accounts_linked": created,
+            "institution_id": institution_id,
+            "institution_name": institution_name,
+        }
+
+    except PlaidApiException as e:
+        # Nice 400s for common Plaid errors (e.g., INVALID_PUBLIC_TOKEN)
+        try:
+            err = e.body and json.loads(e.body)
+        except Exception:
+            err = None
+        msg = (err or {}).get("error_message") or str(e)
+        code = (err or {}).get("error_code")
+        raise HTTPException(status_code=400, detail=f"{code or 'PLAID_ERROR'}: {msg}")
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
