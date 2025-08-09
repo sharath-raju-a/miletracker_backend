@@ -625,7 +625,7 @@ async def exchange_plaid_token(body: ExchangeTokenRequest):
             await db_manager.update_plaid_access_token(user_id=body.user_id, item_id=item_id, access_token=access_token)
             # (Optionally) clear old account rows for this item and re-insert (keeps accounts in sync)
             await db_manager.delete_plaid_accounts_for_item(user_id=body.user_id, item_id=item_id)
-
+        print("After checking if account exists")
         created = 0
         for a in acc_resp.accounts:
             account_data = {
@@ -662,6 +662,7 @@ async def exchange_plaid_token(body: ExchangeTokenRequest):
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+        print("Exchange error:", repr(e))
 
 
 @app.delete("/api/plaid/disconnect/{item_id}")
