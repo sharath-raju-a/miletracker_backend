@@ -573,8 +573,8 @@ def create_link_token(
             # If you use OAuth flows on web/ios, you can set redirect_uri here (and in dashboard)
             # link_req.redirect_uri = "https://yourapp.com/oauth.html"
             pass
-
         resp = client.link_token_create(link_req)
+        print(f"Link token {resp.link_token}")
         return {"link_token": resp.link_token}
     except Exception as e:
         # You’ll see precise Plaid errors here if something is misconfigured
