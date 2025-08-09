@@ -26,7 +26,7 @@ from plaid.api_client import ApiClient
 import os
 import plaid
 import traceback
-from .auth import get_current_user
+from auth import get_current_user
 
 configuration = Configuration(
     host=Environment.Sandbox,
