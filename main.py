@@ -734,7 +734,7 @@ async def check_account_linked(
 # -------------------------------
 # Get accounts for a linked user
 # -------------------------------
-@app.post("/api/plaid/accounts")
+@app.get("/api/plaid/accounts")
 async def get_plaid_accounts(body: AccountsRequest):
     accounts = await db_manager.get_user_plaid_accounts(body.user_id, item_id=body.item_id)
     print(f"accounts {accounts}")
@@ -759,7 +759,7 @@ async def get_plaid_accounts(body: AccountsRequest):
 # ----------------------------------------
 # Get transactions for a date range (simple)
 # ----------------------------------------
-@app.post("/api/plaid/transactions")
+@app.get("/api/plaid/transactions")
 async def get_transactions(body: TransactionsRequest):
     try:
         # pick one active row for this user (optionally filtered by item)
