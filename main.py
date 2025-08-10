@@ -734,9 +734,12 @@ async def check_account_linked(
 # -------------------------------
 # Get accounts for a linked user
 # -------------------------------
+
+
 @app.get("/api/plaid/accounts")
-async def get_plaid_accounts(body: AccountsRequest):
-    accounts = await db_manager.get_user_plaid_accounts(body.user_id, item_id=body.item_id)
+async def get_plaid_accounts(current_user: dict = Depends(get_current_user_dev),  # pulls X-User-Id
+    item_id: str | None = None,  ):
+    accounts = await db_manager.get_user_plaid_accounts(current_user.user_id, item_id=body.item_id)
     print(f"accounts {accounts}")
     return {
         "accounts": [
