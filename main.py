@@ -583,6 +583,10 @@ def create_link_token(
         # You’ll see precise Plaid errors here if something is misconfigured
         raise HTTPException(status_code=500, detail=str(e))
 
+def _as_str(v):
+    # Plaid enums have .value; plain strings/None are fine
+    return getattr(v, "value", v) if v is not None else None
+
 @app.post("/api/plaid/exchange-token")
 async def exchange_plaid_token(body: ExchangeTokenRequest):
     try:
@@ -635,8 +639,8 @@ async def exchange_plaid_token(body: ExchangeTokenRequest):
                 "institution_name": institution_name,
                 "account_id": a.account_id,
                 "account_name": a.name,
-                "account_type": a.type,
-                "account_subtype": a.subtype,
+                "account_type": _as_str(a.type),
+                "account_subtype": _as_str(a.subtype),
                 "mask": a.mask,
             }
             await db_manager.create_plaid_account(user_id=body.user_id, data=account_data)
