@@ -494,26 +494,17 @@ class DatabaseManager:
             print("Exception occured while creating")
             print("Creation error:", repr(e))
 
-    async def get_user_plaid_accounts(self, user_id: str, item_id: Optional[str] = None) -> List[Dict[str, Any]]:
-        try:
-            params = {"user_id": user_id}
-            filt = "AND item_id = :item_id" if item_id else ""
-            if item_id:
-                params["item_id"] = item_id
-
-            rows = await self.database.fetch_all(
-                f"""
-                SELECT * FROM plaid_accounts
-                WHERE user_id = :user_id AND is_active = TRUE {filt}
-                ORDER BY created_at DESC
-                """,
-                params,
-            )
-            print("Fetched user plaid accounts")
-            return [dict(r) for r in rows]
-
-        except Exception as e:
-            print("Fetching error:", repr(e))
+    async def get_user_plaid_accounts(self, user_id: str, item_id: str | None = None):
+        query = """
+            SELECT *
+            FROM plaid_accounts
+            WHERE user_id = :user_id
+            AND (:item_id IS NULL OR item_id = :item_id)
+            AND is_active = TRUE
+            ORDER BY created_at DESC
+        """
+        rows = await self.database.fetch_all(query, {"user_id": user_id, "item_id": item_id})
+        return [dict(r) for r in rows]
 
     async def get_plaid_account_by_item_id(self, user_id: str, item_id: str) -> Optional[Dict[str, Any]]:
         row = await self.database.fetch_one(
