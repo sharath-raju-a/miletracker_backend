@@ -737,6 +737,7 @@ async def check_account_linked(
 @app.post("/api/plaid/accounts")
 async def get_plaid_accounts(body: AccountsRequest):
     accounts = await db_manager.get_user_plaid_accounts(body.user_id, item_id=body.item_id)
+    print(f"accounts {accounts}")
     return {
         "accounts": [
             {
