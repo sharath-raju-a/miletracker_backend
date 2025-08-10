@@ -763,37 +763,60 @@ async def get_plaid_accounts(current_user: dict = Depends(get_current_user_dev),
 # Get transactions for a date range (simple)
 # ----------------------------------------
 @app.get("/api/plaid/transactions")
-async def get_transactions(body: TransactionsRequest):
+async def get_transactions(
+    start_date: date | None = None,      # ?start_date=2025-01-01
+    end_date: date | None = None,        # ?end_date=2025-01-31
+    count: int = 100,                    # ?count=100
+    offset: int = 0,                     # ?offset=0
+    item_id: str | None = None,          # ?item_id=ins_xxx (optional)
+    current_user: dict = Depends(get_current_user_dev),
+):
     try:
-        # pick one active row for this user (optionally filtered by item)
+        # 1) Get any active Plaid account row for this user (optionally by item)
         row = await db_manager.get_any_active_plaid_account(
-            user_id=body.user_id,
-            item_id=body.item_id
+            user_id=current_user["id"],
+            item_id=item_id,
         )
         if not row:
-            raise HTTPException(status_code=404, detail="No access_token found for user. Link an account first.")
+            raise HTTPException(
+                status_code=404,
+                detail="No access_token found for user. Link an account first.",
+            )
 
         access_token = row["access_token"]
 
-        end_dt = body.end_date or date.today()
-        start_dt = body.start_date or (end_dt - timedelta(days=30))
+        # 2) Date defaults (last 30 days)
+        end_dt = end_date or date.today()
+        start_dt = start_date or (end_dt - timedelta(days=30))
 
-        options = TransactionsGetRequestOptions(
-            count=body.count or 100,
-            offset=body.offset or 0
-        )
+        # 3) Build request
+        options = TransactionsGetRequestOptions(count=count, offset=offset)
         tx_req = TransactionsGetRequest(
             access_token=access_token,
             start_date=start_dt,
             end_date=end_dt,
-            options=options
+            options=options,
         )
+
+        # 4) Call Plaid
         tx_resp = client.transactions_get(tx_req)
         return tx_resp.to_dict()
+
+    except PlaidApiException as e:
+        # return a helpful 400 with Plaid error details
+        try:
+            payload = e.body and json.loads(e.body)
+        except Exception:
+            payload = None
+        msg = (payload or {}).get("error_message") or str(e)
+        code = (payload or {}).get("error_code") or "PLAID_ERROR"
+        raise HTTPException(status_code=400, detail=f"{code}: {msg}")
+
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.exception_handler(404)
 async def not_found_handler(request, exc):
