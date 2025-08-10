@@ -738,15 +738,10 @@ async def check_account_linked(
 
 @app.get("/api/plaid/accounts")
 async def get_plaid_accounts(
-    item_id: Optional[str] = None,                 # /api/plaid/accounts?item_id=...
-    current_user: dict = Depends(get_current_user_dev),
+    user_id: str = Query(...),
+    item_id: Optional[str] = Query(None)
 ):
-    # current_user is a dict -> use ["id"]
-    accounts = await db_manager.get_user_plaid_accounts(
-        user_id=current_user["id"],
-        item_id=item_id,
-    )
-
+    accounts = await db_manager.get_user_plaid_accounts(user_id=user_id, item_id=item_id)
     return {
         "accounts": [
             {
@@ -758,12 +753,12 @@ async def get_plaid_accounts(
                 "account_type": a["account_type"],
                 "account_subtype": a["account_subtype"],
                 "mask": a["mask"],
-                "created_at": (a["created_at"].isoformat() if a.get("created_at") else None),
+                "created_at": a["created_at"].isoformat() if a.get("created_at") else None
             }
             for a in accounts
         ]
     }
-    
+
 # ----------------------------------------
 # Get transactions for a date range (simple)
 # ----------------------------------------
