@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Depends, Query
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Depends, Query, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
@@ -6,7 +6,7 @@ import uvicorn
 import os
 import shutil
 from datetime import datetime, date, timedelta
-from typing import List, Optional, Dict
+from typing import List, Optional, Dict, Any
 import uuid
 import json
 from pydantic import BaseModel
@@ -131,6 +131,17 @@ class TransactionsRequest(BaseModel):
 class PlaidAccountCheck(BaseModel):
     item_id: Optional[str] = None
     account_id: Optional[str] = None
+
+class SensorDataIn(BaseModel):
+    # names match your Flutter SensorData.toJson()
+    timestamp: int                           # epoch ms
+    accelerationX: Optional[float] = None
+    accelerationY: Optional[float] = None
+    accelerationZ: Optional[float] = None
+    magnitude: Optional[float] = None
+    stepCount: Optional[int] = None
+    activityType: Optional[str] = None       # walking|driving|stationary|unknown
+    confidence: Optional[float] = None
 
 # Helper function to format numbers properly
 def format_distance(distance: float) -> float:
@@ -817,6 +828,38 @@ async def get_transactions(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.post("/api/sensor-data", status_code=201)
+async def post_sensor_data(
+    payload: SensorDataIn,
+    current_user: dict = Depends(get_current_user_dev),
+):
+    try:
+        row = await db_manager.insert_sensor_data(current_user["user_id"], payload.dict())
+        return row
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/sensor-data")
+async def list_sensor_data(
+    limit: int = Query(default=100, ge=1, le=1000),
+    current_user: dict = Depends(get_current_user_dev),
+):
+    try:
+        rows = await db_manager.get_sensor_data(current_user["user_id"], limit=limit)
+        return rows
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/sensor-data/steps/today")
+async def get_steps_today(
+    current_user: dict = Depends(get_current_user_dev),
+):
+    try:
+        steps = await db_manager.get_today_step_count(current_user["user_id"])
+        return {"stepCount": steps}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.exception_handler(404)
 async def not_found_handler(request, exc):
@@ -831,6 +874,7 @@ async def internal_error_handler(request, exc):
         status_code=500,
         content={"detail": "Internal server error"}
     )
+
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)

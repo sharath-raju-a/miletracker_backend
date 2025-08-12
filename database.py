@@ -122,6 +122,22 @@ plaid_accounts_table = Table(
     Column("updated_at", DateTime, default=datetime.utcnow, onupdate=datetime.utcnow),
 )
 
+# --- Sensor metrics ---
+sensor_data_table = Table(
+    "sensor_data",
+    metadata,
+    sa.Column("id", sa.Integer, primary_key=True, autoincrement=True),
+    sa.Column("user_id", sa.String(64), nullable=False, index=True),  # Firebase UID
+    sa.Column("timestamp_ms", sa.BigInteger, nullable=False, index=True),  # device epoch ms
+    sa.Column("acceleration_x", sa.Float, nullable=True),
+    sa.Column("acceleration_y", sa.Float, nullable=True),
+    sa.Column("acceleration_z", sa.Float, nullable=True),
+    sa.Column("magnitude", sa.Float, nullable=True),
+    sa.Column("step_count", sa.Integer, nullable=True),
+    sa.Column("activity_type", sa.String(32), nullable=True),  # walking|driving|stationary|unknown
+    sa.Column("confidence", sa.Float, nullable=True),
+    sa.Column("created_at", sa.DateTime, server_default=sa.func.now(), nullable=False),
+)
 
 class DatabaseManager:
     def __init__(self):
@@ -599,6 +615,64 @@ class DatabaseManager:
             {"user_id": user_id},
         )
         return val is not None
+
+    async def insert_sensor_data(self, user_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Insert one sensor row for this user."""
+        values = {
+            "user_id": user_id,
+            "timestamp_ms": int(data.get("timestamp") or data.get("timestamp_ms")),
+            "acceleration_x": data.get("accelerationX"),
+            "acceleration_y": data.get("accelerationY"),
+            "acceleration_z": data.get("accelerationZ"),
+            "magnitude": data.get("magnitude"),
+            "step_count": data.get("stepCount"),
+            "activity_type": data.get("activityType"),
+            "confidence": data.get("confidence") or data.get("confidenceLevel"),
+        }
+        new_id = await self.database.execute(sensor_data_table.insert().values(**values))
+        row = await self.database.fetch_one(sensor_data_table.select().where(sensor_data_table.c.id == new_id))
+        return dict(row) if row else {}
+
+    async def get_sensor_data(self, user_id: str, limit: int | None = None) -> List[Dict[str, Any]]:
+        query = (
+            sensor_data_table
+            .select()
+            .where(sensor_data_table.c.user_id == user_id)
+            .order_by(sensor_data_table.c.timestamp_ms.desc())
+        )
+        if limit:
+            query = query.limit(limit)
+        rows = await self.database.fetch_all(query)
+        return [dict(r) for r in rows]
+
+    async def get_today_step_count(self, user_id: str) -> int:
+        """
+        Return the delta in step_count for today (max - min for today).
+        If you prefer the latest total, return just max(step_count).
+        """
+        # Midnight UTC; if you want local tz, adjust in client or here.
+        q_min = """
+            SELECT step_count
+            FROM sensor_data
+            WHERE user_id = :user_id AND to_timestamp(timestamp_ms/1000)::date = CURRENT_DATE
+            ORDER BY timestamp_ms ASC
+            LIMIT 1
+        """
+        q_max = """
+            SELECT step_count
+            FROM sensor_data
+            WHERE user_id = :user_id AND to_timestamp(timestamp_ms/1000)::date = CURRENT_DATE
+            ORDER BY timestamp_ms DESC
+            LIMIT 1
+        """
+        first_val = await self.database.fetch_val(q_min, {"user_id": user_id})
+        last_val  = await self.database.fetch_val(q_max, {"user_id": user_id})
+        if first_val is None or last_val is None:
+            return 0
+        try:
+            return max(0, int(last_val) - int(first_val))
+        except Exception:
+            return 0
 
 
 # Global database manager instance
