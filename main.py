@@ -834,7 +834,7 @@ async def post_sensor_data(
     current_user: dict = Depends(get_current_user_dev),
 ):
     try:
-        row = await db_manager.insert_sensor_data(current_user["user_id"], payload.dict())
+        row = await db_manager.insert_sensor_data(current_user["id"], payload.dict())
         return row
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -845,7 +845,7 @@ async def list_sensor_data(
     current_user: dict = Depends(get_current_user_dev),
 ):
     try:
-        rows = await db_manager.get_sensor_data(current_user["user_id"], limit=limit)
+        rows = await db_manager.get_sensor_data(current_user["id"], limit=limit)
         return rows
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -855,7 +855,7 @@ async def get_steps_today(
     current_user: dict = Depends(get_current_user_dev),
 ):
     try:
-        steps = await db_manager.get_today_step_count(current_user["user_id"])
+        steps = await db_manager.get_today_step_count(current_user["id"])
         return {"stepCount": steps}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
